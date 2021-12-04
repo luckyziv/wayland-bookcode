@@ -1,3 +1,4 @@
+/**************************************************************************************************************************/
 dir:
     /usr/share/wayland/wayland.xml
     /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
@@ -8,19 +9,25 @@ cmd:
     wayland-scanner private-code < protocol.xml > protocol.c
     WAYLAND_DEBUG=1
 
+/**************************************************************************************************************************/
 4.1:
     cc -o client client.c -lwayland-client
-        .client
+	.client
 
     cc -o server server.c -lwayland-server
-        .server
-        WAYLAND_DISPLAY=wayland-1 ./client
+	.server
 
+    WAYLAND_DISPLAY=wayland-1 ./client
+
+/*************************************************************************************************************************/
 5.1:
     cc -o globals globals.c -lwayland-client
 
+/*************************************************************************************************************************/
 7.3:
     wayland-scanner private-code  /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml xdg-shell-protocol.c
     wayland-scanner client-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml xdg-shell-client-protocol.h
     cc -o client client.c xdg-shell-protocol.c -lwayland-client -lrt
     WAYLAND_DEBUG=1 ./client
+
+/*************************************************************************************************************************/
