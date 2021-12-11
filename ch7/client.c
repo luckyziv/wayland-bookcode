@@ -1,5 +1,6 @@
+//ljlj client端代码
+
 #define _POSIX_C_SOURCE 200112L
-#include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -10,67 +11,6 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
-/* xkb */
-#include <assert.h>
-#include <xkbcommon/xkbcommon.h>
-
-
-
-enum pointer_event_mask {
-    POINTER_EVENT_ENTER = 1 << 0,
-    POINTER_EVENT_LEAVE = 1 << 1,
-    POINTER_EVENT_MOTION = 1 << 2,
-    POINTER_EVENT_BUTTON = 1 << 3,
-    POINTER_EVENT_AXIS = 1 << 4,
-    POINTER_EVENT_AXIS_SOURCE = 1 << 5,
-    POINTER_EVENT_AXIS_STOP = 1 << 6,
-    POINTER_EVENT_AXIS_DISCRETE = 1 << 7,
-};
-
-struct pointer_event {
-    uint32_t event_mask;
-    wl_fixed_t surface_x, surface_y;
-    uint32_t button, state;
-    uint32_t time;
-    uint32_t serial;
-    struct {
-        bool valid;
-        wl_fixed_t value;
-        int32_t discrete;
-    } axes[2];
-    uint32_t axis_source;
-};
-
-/* Wayland code */
-struct client_state {
-    /* Globals */
-    struct wl_display *wl_display;
-    struct wl_registry *wl_registry;
-    struct wl_shm *wl_shm;
-    struct wl_compositor *wl_compositor;
-    struct xdg_wm_base *xdg_wm_base;
-	struct wl_seat *wl_seat;
-
-    /* Objects */
-    struct wl_surface *wl_surface;
-    struct xdg_surface *xdg_surface;
-    struct xdg_toplevel *xdg_toplevel;
-	/* pointer event */
-	struct wl_pointer *wl_pointer;
-	struct wl_keyboard *wl_keyboard;
-	struct wl_touch *wl_touch;
-	/* keyboard event */
-#if 0
-	struct xkb_state *xkb_state;
-	struct xkb_context *xkb_context;
-	struct xkb_keymanp *xkb_keymap;
-#endif
-
-    /* State */
-    float offset;
-    uint32_t last_frame;
-	struct pointer_event pointer_event;
-};
 
 /* Shared memory support code */
 static void
@@ -118,6 +58,21 @@ allocate_shm_file(size_t size)
     }
     return fd;
 }
+
+/* Wayland code */
+struct client_state {
+    /* Globals */
+    struct wl_display *wl_display;
+    struct wl_registry *wl_registry;
+    struct wl_shm *wl_shm;
+    struct wl_compositor *wl_compositor;
+    struct xdg_wm_base *xdg_wm_base;
+    /* Objects */
+    struct wl_surface *wl_surface;
+    struct xdg_surface *xdg_surface;
+    struct xdg_toplevel *xdg_toplevel;
+};
+
 static void
 wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
 {
@@ -155,11 +110,9 @@ draw_frame(struct client_state *state)
     close(fd);
 
     /* Draw checkerboxed background */
-    int offset = (int)state->offset % 8;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-//            if ((x + y / 8 * 8) % 16 < 8)
-            if (((x + offset) + (y + offset)  / 8 * 8) % 16 < 8)
+            if ((x + y / 8 * 8) % 16 < 8)
                 data[y * width + x] = 0xFF666666;
             else
                 data[y * width + x] = 0xFFEEEEEE;
@@ -197,375 +150,26 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
     .ping = xdg_wm_base_ping,
 };
 
-/* wl_callback */
-static const struct wl_callback_listener wl_surface_frame_listener;
-
-static void
-wl_surface_frame_done(void *data, struct wl_callback *cb, uint32_t time)
-{
-//    printf("ljlj wl_callback done!\r\n");
-#if 1
-	/* step1. Destroy this callback:wl_callback*/
-	wl_callback_destroy(cb);
-
-	/* Request another frame */
-	struct client_state *state = data;
-	cb = wl_surface_frame(state->wl_surface);
-	wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
-
-	/* Update scroll amount at 24 pixels per second */
-	if (state->last_frame != 0) {
-		int elapsed = time - state->last_frame;
-		state->offset += elapsed / 1000.0 * 24;
-	}
-
-	/* Submit a frame for this event */
-	struct wl_buffer *buffer = draw_frame(state);
-	wl_surface_attach(state->wl_surface, buffer, 0, 0);
-	wl_surface_damage_buffer(state->wl_surface, 0, 0, INT32_MAX, INT32_MAX);
-	wl_surface_commit(state->wl_surface);
-
-	state->last_frame = time;
-#endif
-}
-
-static const struct wl_callback_listener wl_surface_frame_listener = {
-	.done = wl_surface_frame_done,
-};
-
-/* wl_pointer */
-static void
-wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
-               uint32_t serial, struct wl_surface *surface,
-               wl_fixed_t surface_x, wl_fixed_t surface_y)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_ENTER;
-    client_state->pointer_event.serial = serial;
-    client_state->pointer_event.surface_x = surface_x,
-    client_state->pointer_event.surface_y = surface_y;
-}
-
-static void
-wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
-               uint32_t serial, struct wl_surface *surface)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.serial = serial;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_LEAVE;
-}
-
-static void
-wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time,
-               wl_fixed_t surface_x, wl_fixed_t surface_y)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_MOTION;
-    client_state->pointer_event.time = time;
-    client_state->pointer_event.surface_x = surface_x,
-    client_state->pointer_event.surface_y = surface_y;
-}
-
-static void
-wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
-               uint32_t time, uint32_t button, uint32_t state)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_BUTTON;
-    client_state->pointer_event.time = time;
-    client_state->pointer_event.serial = serial;
-    client_state->pointer_event.button = button,
-    client_state->pointer_event.state = state;
-}
-
-static void
-wl_pointer_axis(void *data, struct wl_pointer *wl_pointer, uint32_t time,
-               uint32_t axis, wl_fixed_t value)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_AXIS;
-    client_state->pointer_event.time = time;
-    client_state->pointer_event.axes[axis].valid = true;
-    client_state->pointer_event.axes[axis].value = value;
-}
-
-static void
-wl_pointer_axis_source(void *data, struct wl_pointer *wl_pointer,
-               uint32_t axis_source)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_AXIS_SOURCE;
-    client_state->pointer_event.axis_source = axis_source;
-}
-
-static void
-wl_pointer_axis_stop(void *data, struct wl_pointer *wl_pointer,
-               uint32_t time, uint32_t axis)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.time = time;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_AXIS_STOP;
-    client_state->pointer_event.axes[axis].valid = true;
-}
-
-static void
-wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
-               uint32_t axis, int32_t discrete)
-{
-    struct client_state *client_state = data;
-    client_state->pointer_event.event_mask |= POINTER_EVENT_AXIS_DISCRETE;
-    client_state->pointer_event.axes[axis].valid = true;
-    client_state->pointer_event.axes[axis].discrete = discrete;
-}
-
-static void
-wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
-{
-    struct client_state *client_state = data;
-    struct pointer_event *event = &client_state->pointer_event;
-    fprintf(stderr, "pointer frame @ %d: ", event->time);
-
-    if (event->event_mask & POINTER_EVENT_ENTER) {
-        fprintf(stderr, "entered %f, %f ",
-                        wl_fixed_to_double(event->surface_x),
-                        wl_fixed_to_double(event->surface_y));
-    }
-
-    if (event->event_mask & POINTER_EVENT_LEAVE) {
-        fprintf(stderr, "leave");
-    }
-
-    if (event->event_mask & POINTER_EVENT_MOTION) {
-        fprintf(stderr, "motion %f, %f ",
-                        wl_fixed_to_double(event->surface_x),
-                        wl_fixed_to_double(event->surface_y));
-    }
-
-	if (event->event_mask & POINTER_EVENT_BUTTON) {
-	    char *state = event->state == WL_POINTER_BUTTON_STATE_RELEASED ?
-					   "released" : "pressed";
-	    fprintf(stderr, "button %d %s ", event->button, state);
-	}
-
-    uint32_t axis_events = POINTER_EVENT_AXIS
-              | POINTER_EVENT_AXIS_SOURCE
-               | POINTER_EVENT_AXIS_STOP
-               | POINTER_EVENT_AXIS_DISCRETE;
-    char *axis_name[2] = {
-               [WL_POINTER_AXIS_VERTICAL_SCROLL] = "vertical",
-               [WL_POINTER_AXIS_HORIZONTAL_SCROLL] = "horizontal",
-    };
-    char *axis_source[4] = {
-               [WL_POINTER_AXIS_SOURCE_WHEEL] = "wheel",
-               [WL_POINTER_AXIS_SOURCE_FINGER] = "finger",
-               [WL_POINTER_AXIS_SOURCE_CONTINUOUS] = "continuous",
-               [WL_POINTER_AXIS_SOURCE_WHEEL_TILT] = "wheel tilt",
-    };
-    if (event->event_mask & axis_events) {
-        for (size_t i = 0; i < 2; ++i) {
-            if (!event->axes[i].valid) {
-                continue;
-            }
-			fprintf(stderr, "%s axis ", axis_name[i]);
-			if (event->event_mask & POINTER_EVENT_AXIS) {
-				fprintf(stderr, "value %f ", wl_fixed_to_double(
-					   event->axes[i].value));
-			}
-			if (event->event_mask & POINTER_EVENT_AXIS_DISCRETE) {
-			    fprintf(stderr, "discrete %d ",
-					   event->axes[i].discrete);
-			}
-			if (event->event_mask & POINTER_EVENT_AXIS_SOURCE) {
-			    fprintf(stderr, "via %s ",
-					   axis_source[event->axis_source]);
-			}
-			if (event->event_mask & POINTER_EVENT_AXIS_STOP) {
-			    fprintf(stderr, "(stopped) ");
-			}
-        }
-	}
-
-	fprintf(stderr, "\n");
-	memset(event, 0, sizeof(*event));
-}
-
-#if 0
-static void
-wl_keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard,
-				uint32_t format, int32_t fd, uint32_t size)
-{
-    struct client_state *client_state = data;
-    assert(format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1);
-
-    char *map_shm = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
-    assert(map_shm != MAP_FAILED);
-
-    struct xkb_keymap *xkb_keymap = xkb_keymap_new_from_string(
-                    client_state->xkb_context, map_shm,
-                    XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-    munmap(map_shm, size);
-    close(fd);
-
-	/* use xkb by steps*/
-    struct xkb_state *xkb_state = xkb_state_new(xkb_keymap);
-    xkb_keymap_unref(client_state->xkb_keymap);
-    xkb_state_unref(client_state->xkb_state);
-    client_state->xkb_keymap = xkb_keymap;
-    client_state->xkb_state = xkb_state;
-}
-
-static void
-wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
-               uint32_t serial, struct wl_surface *surface,
-               struct wl_array *keys)
-{
-	struct client_state *client_state = data;
-    fprintf(stderr, "keyboard enter; keys pressed are:\n");
-    uint32_t *key;
-    wl_array_for_each(key, keys) {
-    	char buf[128];
-        xkb_keysym_t sym = xkb_state_key_get_one_sym(client_state->xkb_state, *key + 8);
-        xkb_keysym_get_name(sym, buf, sizeof(buf));
-        fprintf(stderr, "sym: %-12s (%d), ", buf, sym);
-        xkb_state_key_get_utf8(client_state->xkb_state,
-                              *key + 8, buf, sizeof(buf));
-        fprintf(stderr, "utf8: '%s'\n", buf);
-    }
-}
-
-static void
-wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
-               uint32_t serial, uint32_t time, uint32_t key, uint32_t state)
-{
-	struct client_state *client_state = data;
-    char buf[128];
-    uint32_t keycode = key + 8;
-    xkb_keysym_t sym = xkb_state_key_get_one_sym(client_state->xkb_state, keycode);
-    xkb_keysym_get_name(sym, buf, sizeof(buf));
-    const char *action =
-     		state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release";
-    fprintf(stderr, "key %s: sym: %-12s (%d), ", action, buf, sym);
-    xkb_state_key_get_utf8(client_state->xkb_state, keycode,
-            		buf, sizeof(buf));
-    fprintf(stderr, "utf8: '%s'\n", buf);
-}
-
-static void
-wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
-               uint32_t serial, struct wl_surface *surface)
-{
-    fprintf(stderr, "keyboard leave\n");
-}
-
-static void
-wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
-               uint32_t serial, uint32_t mods_depressed,
-               uint32_t mods_latched, uint32_t mods_locked,
-               uint32_t group)
-{
-	struct client_state *client_state = data;
-    xkb_state_update_mask(client_state->xkb_state,
-               mods_depressed, mods_latched, mods_locked, 0, 0, group);
-}
-
-static void
-wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
-               int32_t rate, int32_t delay)
-{
-       /* Left as an exercise for the reader */
-}
-#endif
-
-static const struct wl_pointer_listener wl_pointer_listener = {
-    .enter = wl_pointer_enter,
-    .leave = wl_pointer_leave,
-    .motion = wl_pointer_motion,
-    .button = wl_pointer_button,
-    .axis = wl_pointer_axis,
-    .frame = wl_pointer_frame,
-    .axis_source = wl_pointer_axis_source,
-    .axis_stop = wl_pointer_axis_stop,
-    .axis_discrete = wl_pointer_axis_discrete,
-};
-
-#if 0
-static const struct wl_keyboard_listener wl_keyboard_listener = {
-	.keymap = wl_keyboard_keymap,
-	.enter = wl_keyboard_enter,
-	.leave = wl_keyboard_leave,
-	.key = wl_keyboard_key,
-	.modifiers = wl_keyboard_modifiers,
-	.repeat_info = wl_keyboard_repeat_info,
-};
-#endif
-
-static void
-wl_seat_capabilities(void *data, struct wl_seat *wl_seat, uint32_t capabilities)
-{
-    struct client_state *state = data;
-    /* pointer */
-    bool have_pointer = capabilities & WL_SEAT_CAPABILITY_POINTER;
-    if (have_pointer && state->wl_pointer == NULL) {
-        state->wl_pointer = wl_seat_get_pointer(state->wl_seat);	/* get wl_pointer from wl_seat */
-        wl_pointer_add_listener(state->wl_pointer,
-                       &wl_pointer_listener, state);
-    } else if (!have_pointer && state->wl_pointer != NULL) {
-        wl_pointer_release(state->wl_pointer);
-        state->wl_pointer = NULL;
-    }
-
-	/* keyboard */
-#if 0
-	bool have_keyboard = capabilities & WL_SEAT_CAPABILITY_KEYBOARD;
-	if (have_keyboard && state->wl_keyboard == NULL) {
-		state->wl_keyboard = wl_seat_get_keyboard(state->wl_keyboard);
-		wl_keyboard_add_listener(state->wl_keyboard,
-						&wl_keyboard_listener, state);
-	} else if (!have_keyboard && state->wl_keyboard != NULL) {
-		wl_keyboard_release(state->wl_keyboard);
-		state->wl_keyboard = NULL;
-	}
-#endif
-}
-
-static void
-wl_seat_name(void *data, struct wl_seat *wl_seat, const char *name)
-{
-       fprintf(stderr, "seat name: %s\n", name);
-       //printf("seat name: %s\r\n", name);
-}
-
-static const struct wl_seat_listener wl_seat_listener = {
-       .capabilities = wl_seat_capabilities,
-       .name = wl_seat_name,
-};
-
-
-
+//ljlj client端使用wl_registry绑定指定 global
 static void
 registry_global(void *data, struct wl_registry *wl_registry,
         uint32_t name, const char *interface, uint32_t version)
 {
-	//printf("interface: '%s', version: %d, name: %d\n",interface, version, name);
-
-    // 拿到传进来的参数:如interface，这些参数是server 发送global事件所带来，客户端可以根据strcmp获取,进行绑定，client客户端程序就可以使用
     struct client_state *state = data;
     if (strcmp(interface, wl_shm_interface.name) == 0) {
+        //ljlj 绑定wl_shm，用来创建buffer pool
         state->wl_shm = wl_registry_bind(
                 wl_registry, name, &wl_shm_interface, 1);
     } else if (strcmp(interface, wl_compositor_interface.name) == 0) {
+        //ljlj 绑定合成器，用来创建wl_surface
         state->wl_compositor = wl_registry_bind(
                 wl_registry, name, &wl_compositor_interface, 4);
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
+        //ljlj 绑定wl_wm_base,以创建wl_xdgshell
         state->xdg_wm_base = wl_registry_bind(
                 wl_registry, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(state->xdg_wm_base,
                 &xdg_wm_base_listener, state);
-    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
-        //printf("ljlj can bind wl_seat.enter!\r\n");
-		state->wl_seat = wl_registry_bind(
-						wl_registry, name, &wl_seat_interface, 5);
-		wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
     }
 }
 
@@ -585,23 +189,18 @@ int
 main(int argc, char *argv[])
 {
     struct client_state state = { 0 };
-    //state.wl_display = wl_display_connect(NULL);                    // 1.display connect
-    state.wl_display = wl_display_connect("wayland-1");
-    state.wl_registry = wl_display_get_registry(state.wl_display);	// 2.客户端创建全局对象wl_registry: c->s
-	//state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    state.wl_display = wl_display_connect(NULL);
+    state.wl_registry = wl_display_get_registry(state.wl_display);
     wl_registry_add_listener(state.wl_registry, &wl_registry_listener, &state);
     wl_display_roundtrip(state.wl_display);
 
     state.wl_surface = wl_compositor_create_surface(state.wl_compositor);
-    state.xdg_surface = xdg_wm_base_get_xdg_surface(    // 从wl_surface获得xdg_surface，将surface带入xdg shell中
+    state.xdg_surface = xdg_wm_base_get_xdg_surface(
             state.xdg_wm_base, state.wl_surface);
     xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
-    state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);   // 将xdg surface转换为xdg toplevel 
+    state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
     xdg_toplevel_set_title(state.xdg_toplevel, "Example client");
     wl_surface_commit(state.wl_surface);
-
-    struct wl_callback *cb = wl_surface_frame(state.wl_surface);    // 在surface上请求一个帧回调
-    wl_callback_add_listener(cb, &wl_surface_frame_listener, &state);
 
     while (wl_display_dispatch(state.wl_display)) {
         /* This space deliberately left blank */
@@ -609,3 +208,4 @@ main(int argc, char *argv[])
 
     return 0;
 }
+
