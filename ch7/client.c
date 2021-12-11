@@ -110,12 +110,20 @@ draw_frame(struct client_state *state)
     close(fd);
 
     /* Draw checkerboxed background */
+#if 0
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             if ((x + y / 8 * 8) % 16 < 8)
                 data[y * width + x] = 0xFF666666;
             else
                 data[y * width + x] = 0xFFEEEEEE;
+        }
+    }
+#endif
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            //data[y * width + x] = 0xFF666666;
+            data[y * width + x] = 0xFFEEEEEE;
         }
     }
 
