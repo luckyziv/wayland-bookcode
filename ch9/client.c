@@ -222,8 +222,10 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
 }
 
 static void
-wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
-                uint32_t serial, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {}
+wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time,
+                wl_fixed_t surface_x, wl_fixed_t surface_y) {
+    printf("ljlj pointer motion:x: %ld y: %ld\r\n", surface_x, surface_y);
+}
 
 static void
 wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
