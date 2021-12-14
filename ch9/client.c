@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#include <stdio.h>
 
 /* Shared memory support code */
 static void
@@ -210,11 +211,33 @@ wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
                 uint32_t serial, struct wl_surface *surface,
                 wl_fixed_t surface_x, wl_fixed_t surface_y)
 {
-    printf("ljlj enter surface!");
+    printf("ljlj enter surface!\r\n");
 }
+
+static void
+wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
+                uint32_t sefial, struct wl_surface *surface)
+{
+    printf("ljlj leave surface!\r\n");
+}
+
+static void
+wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
+                uint32_t serial, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {}
+
+static void
+wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
+                uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {}
+
+static void
+wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {}
 
 static const struct wl_pointer_listener wl_pointer_listener = {
     .enter = wl_pointer_enter,
+    .leave = wl_pointer_leave,
+    /* ljlj motion,frame要有，否则段错误 */
+    .motion = wl_pointer_motion,
+    .frame = wl_pointer_frame
 };
 
 /* ljlj server端发送，获取到的seat支持设备种类 */
@@ -287,15 +310,19 @@ int
 main(int argc, char *argv[])
 {
     struct client_state state = { 0 };
+
+    /* ljlj setup wayland */
     state.wl_display = wl_display_connect(NULL);
     state.wl_registry = wl_display_get_registry(state.wl_display);
     wl_registry_add_listener(state.wl_registry, &wl_registry_listener, &state);
     wl_display_roundtrip(state.wl_display);
 
+    /* ljlj create xdg_surface from xdg_wm_base and attach role */
     state.wl_surface = wl_compositor_create_surface(state.wl_compositor);
     state.xdg_surface = xdg_wm_base_get_xdg_surface(
             state.xdg_wm_base, state.wl_surface);
     xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
+    /* ljlj allocate role */
     state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
     xdg_toplevel_set_title(state.xdg_toplevel, "Example client");
     wl_surface_commit(state.wl_surface);
