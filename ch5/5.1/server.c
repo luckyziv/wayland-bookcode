@@ -13,6 +13,13 @@ wl_output_handle_bind(struct wl_client *client, void *data,
 	// TODO
 }
 
+static void
+wl_seat_handle_xxx(struct wl_client *client, void *data,
+				uint32_t version, uint32_t id)
+{
+	struct my_state *state = data;
+	// TODO
+}
 
 int
 main(int argc, char *argv[])
@@ -36,6 +43,8 @@ main(int argc, char *argv[])
 	wl_global_create(display, &wl_output_interface,
 					2, &state, wl_output_handle_bind);
 
+	wl_global_create(display, &wl_seat_interface,
+					2, &state, wl_seat_handle_xxx);
 
 
 	wl_display_run(display);

@@ -28,8 +28,12 @@ main(int argc, char *argv[])
 {
 	struct wl_display *display = wl_display_connect(NULL);
 	//struct wl_display *display = wl_display_connect("wayland-0");
+
+	//send wl_display get_registry request
 	struct wl_registry *registry = wl_display_get_registry(display);
+	//add listner to impelet wl_registry event
 	wl_registry_add_listener(registry, &registry_listener, NULL);
+
 	wl_display_roundtrip(display);
 	return 0;
 }
